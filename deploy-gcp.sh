@@ -20,6 +20,27 @@ if [[ "$PROJECT_ID" == "your-gcp-project-id" ]]; then
     exit 1
 fi
 
+echo "Checking if VM exists, creating if necessary"
+
+if ! gcloud compute instances describe $INSTANCE_NAME --zone=$ZONE --project=$PROJECT_ID &>/dev/null; then
+    echo "Creating VM $INSTANCE_NAME..."
+    gcloud compute instances create $INSTANCE_NAME \
+        --project=$PROJECT_ID \
+        --zone=$ZONE \
+        --machine-type=e2-micro \
+        --image-family=ubuntu-2204-lts \
+        --image-project=ubuntu-os-cloud \
+        --boot-disk-size=10GB \
+        --boot-disk-type=pd-standard \
+        --scopes=cloud-platform \
+        --tags=discord-bot
+    
+    echo "Waiting for VM to initialize (30s)"
+    sleep 30
+else
+    echo "VM $INSTANCE_NAME already exists"
+fi
+
 echo "Building image with Cloud Build and pushing to gcr.io/$PROJECT_ID/$IMAGE_NAME:$TAG"
 
 gcloud builds submit --tag gcr.io/$PROJECT_ID/$IMAGE_NAME:$TAG
@@ -37,7 +58,7 @@ fi
 gcloud compute scp --zone=$ZONE --project=$PROJECT_ID $ENV_FILE $INSTANCE_NAME:~/bot.env
 
 echo "Installing Docker on VM, pulling image and running container..."
-gcloud compute ssh $INSTANCE_NAME --zone=$ZONE --project=$PROJECT_ID --command="bash -s" <<'SSH'
+gcloud compute ssh $INSTANCE_NAME --zone=$ZONE --project=$PROJECT_ID --command="bash -s" <<SSH
 set -euo pipefail
 IMAGE="gcr.io/$PROJECT_ID/$IMAGE_NAME:$TAG"
 
