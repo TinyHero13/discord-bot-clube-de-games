@@ -2,6 +2,10 @@
 
 This repository contains a small Discord bot that looks up Steam games and prices (via GG.deals). The project is designed to be run locally, inside Docker, or deployed to a Google Cloud VM using the provided `deploy-gcp.sh` script.
 
+## Example usage
+![Command example](imgs/command_example.png)
+
+
 ## Contents
 
 - `bot.py` — bot entrypoint and extension loader
