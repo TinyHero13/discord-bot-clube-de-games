@@ -33,9 +33,7 @@ async def on_ready():
 async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandNotFound):
         return
-    if isinstance(error, commands.MissingRequiredArgument):
-        return await ctx.send("Você precisa informar o nome do jogo! Exemplo: `!price slay the princess`")
-    await ctx.send("Não consegui executar esse comando. Verifique o console do bot para mais detalhes.")
+    await ctx.send("Não consegui executar esse comando. Tente novamente.")
     print(f"Command error in {ctx.command}: {error}")
 
 async def main():

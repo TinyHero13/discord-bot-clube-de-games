@@ -1,3 +1,3 @@
 """Commands package for bot cogs."""
 
-__all__ = ["ping", "price"]
+__all__ = ["ping", "info"]
