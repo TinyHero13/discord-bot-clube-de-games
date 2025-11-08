@@ -1,38 +1,32 @@
 #!/bin/bash
 
-# Docker-based deploy script for GCP VM
-# Usage
-# export PROJECT_ID="your-gcp-project-id"
-# ./deploy-gcp.sh
+# Usage: export PROJECT_ID="your-gcp-project-id" && ./deploy-gcp.sh
 
 set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:-your-gcp-project-id}"
-IMAGE_NAME="discord-bot"
-TAG="latest"
 INSTANCE_NAME="discord-bot"
 ZONE="us-central1-a"
-CONTAINER_NAME="discord-bot"
-PORT="8081"
+MACHINE_TYPE="e2-micro"
 
 if [[ "$PROJECT_ID" == "your-gcp-project-id" ]]; then
-    echo "Please set PROJECT_ID in the script or export it in your environment."
+    echo "set PROJECT_ID: export PROJECT_ID=your-project-id"
     exit 1
 fi
 
-echo "Checking if VM exists, creating if necessary"
+echo "Deploying Discord Bot to GCP VM"
 
+# Create VM if it doesn't exist
 if ! gcloud compute instances describe $INSTANCE_NAME --zone=$ZONE --project=$PROJECT_ID &>/dev/null; then
     echo "Creating VM $INSTANCE_NAME..."
     gcloud compute instances create $INSTANCE_NAME \
         --project=$PROJECT_ID \
         --zone=$ZONE \
-        --machine-type=e2-micro \
+        --machine-type=$MACHINE_TYPE \
         --image-family=ubuntu-2204-lts \
         --image-project=ubuntu-os-cloud \
         --boot-disk-size=10GB \
         --boot-disk-type=pd-standard \
-        --scopes=cloud-platform \
         --tags=discord-bot
     
     echo "Waiting for VM to initialize (30s)"
@@ -41,57 +35,67 @@ else
     echo "VM $INSTANCE_NAME already exists"
 fi
 
-echo "Building image with Cloud Build and pushing to gcr.io/$PROJECT_ID/$IMAGE_NAME:$TAG"
-
-gcloud builds submit --tag gcr.io/$PROJECT_ID/$IMAGE_NAME:$TAG
-
-echo "Copying env file to VM (bot.env or .env expected locally)"
+# Check for env file
 if [[ -f bot.env ]]; then
     ENV_FILE=bot.env
 elif [[ -f .env ]]; then
     ENV_FILE=.env
 else
-    echo "No bot.env or .env found in current directory. Create one from bot.env.example and fill in TOKEN."
+    echo "No .env found. Create one from bot.env.example"
     exit 1
 fi
 
-gcloud compute scp --zone=$ZONE --project=$PROJECT_ID $ENV_FILE $INSTANCE_NAME:~/bot.env
+echo "Copying files to VM"
+gcloud compute scp --zone=$ZONE --project=$PROJECT_ID \
+    bot.py requirements.txt $ENV_FILE \
+    $INSTANCE_NAME:~/
 
-echo "Installing Docker on VM, pulling image and running container..."
-gcloud compute ssh $INSTANCE_NAME --zone=$ZONE --project=$PROJECT_ID --command="bash -s" <<SSH
-set -euo pipefail
-IMAGE="gcr.io/$PROJECT_ID/$IMAGE_NAME:$TAG"
+gcloud compute scp --recurse --zone=$ZONE --project=$PROJECT_ID \
+    src/ \
+    $INSTANCE_NAME:~/
 
-if ! command -v docker >/dev/null 2>&1; then
-  echo "Installing docker..."
-  sudo apt-get update
-  sudo apt-get install -y docker.io
-  sudo usermod -aG docker $USER || true
-fi
+echo "Setting up Python environment and systemd service..."
+gcloud compute ssh $INSTANCE_NAME --zone=$ZONE --project=$PROJECT_ID --command="
+set -e
 
-echo "Logging to gcr..."
-gcloud auth configure-docker --quiet || true
+# Install Python and dependencies
+sudo apt-get update
+sudo apt-get install -y python3-pip python3-venv ffmpeg
 
-echo "Pulling image: $IMAGE"
-docker pull "$IMAGE"
+# Create virtual environment
+python3 -m venv ~/discord-bot-venv
+source ~/discord-bot-venv/bin/activate
+pip install -r ~/requirements.txt
 
-if docker ps -a --format '{{.Names}}' | grep -q "^$CONTAINER_NAME$"; then
-  echo "Stopping and removing existing container..."
-  docker rm -f "$CONTAINER_NAME" || true
-fi
+# Create systemd service
+sudo tee /etc/systemd/system/discord-bot.service > /dev/null <<'EOF'
+[Unit]
+Description=Discord Bot - Clube de Games
+After=network.target
 
-echo "Creating and running container..."
-docker run -d \
-  --name "$CONTAINER_NAME" \
-  --restart unless-stopped \
-  --env-file ~/bot.env \
-  -p ${PORT}:${PORT} \
-  "$IMAGE"
+[Service]
+Type=simple
+User=$USER
+WorkingDirectory=$HOME
+EnvironmentFile=$HOME/$ENV_FILE
+ExecStart=$HOME/discord-bot-venv/bin/python $HOME/bot.py
+Restart=always
+RestartSec=10
 
-echo "Done. Container $CONTAINER_NAME is running."
-SSH
+[Install]
+WantedBy=multi-user.target
+EOF
 
-echo "Deploy finished."
-echo "Logs: gcloud compute ssh $INSTANCE_NAME --zone=$ZONE --project=$PROJECT_ID --command='docker logs -f $CONTAINER_NAME'"
-echo "SSH:  gcloud compute ssh $INSTANCE_NAME --zone=$ZONE --project=$PROJECT_ID"
+# Enable and start service
+sudo systemctl daemon-reload
+sudo systemctl enable discord-bot
+sudo systemctl restart discord-bot
 
+echo 'Bot deployed and running!'
+echo 'Check status: sudo systemctl status discord-bot'
+echo 'View logs: sudo journalctl -u discord-bot -f'
+"
+
+echo ""
+echo "Deploy complete!"
+echo ""

@@ -1,9 +1,0 @@
-version: '3.8'
-services:
-  discord-bot:
-    image: gcr.io/PROJECT_ID/discord-bot:latest
-    restart: unless-stopped
-    env_file:
-      - ./bot.env
-    ports:
-      - "${PORT:-8081}:8081"

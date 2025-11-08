@@ -3,3 +3,5 @@ yt-dlp
 ffmpeg-python
 python-dotenv
 PyNaCl
+aiohttp
+howlongtobeatpy
